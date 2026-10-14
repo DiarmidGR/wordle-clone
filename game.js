@@ -11,16 +11,31 @@ import { ANSWERS, GUESSES, ANSWER_SET, GUESS_SET } from "./wordlists.js";
 const ROWS = 6;
 const COLS = 5;
 const STORAGE_KEY = "wordle-clone-state-v1";
+// Hard mode is offset from normal mode so the two always use different daily words.
+// ANSWERS.length is 2315 (not a divisor of this), so (day + offset) % n never equals day % n.
+const HARD_OFFSET = 1000;
 
 // ---------- State ----------
-const defaultState = () => ({
-  answerIndex: pickDailyIndex(),
-  guess: "",
-  row: 0,
-  guesses: [],        // array of 5-letter strings
-  won: false,
-  lost: false,
-  busy: false,
+// Per-difficulty game progress. Normal and hard modes each keep their own board,
+// guesses, and daily word, so switching between them preserves progress.
+function newGameProgress(hard) {
+  return {
+    answerIndex: pickDailyIndex(hard),
+    guess: "",
+    row: 0,
+    guesses: [],        // array of 5-letter strings
+    won: false,
+    lost: false,
+    busy: false,
+  };
+}
+
+const defaultState = (hard = false) => ({
+  games: {
+    normal: newGameProgress(false),
+    hard: newGameProgress(true),
+  },
+  active: hard ? "hard" : "normal",
   stats: {
     played: 0,
     wins: 0,
@@ -36,6 +51,11 @@ const defaultState = () => ({
   },
 });
 
+// The game progress for the currently displayed difficulty.
+function game() {
+  return state.games[state.active];
+}
+
 let state = loadState();
 
 // ---------- Utilities ----------
@@ -46,10 +66,13 @@ function dayOfYear() {
   return Math.floor(diff / 86400000);
 }
 
-function pickDailyIndex() {
+function pickDailyIndex(hard) {
   // Deterministic daily selection based on the answer list length and today's date.
+  // Hard mode is offset so it always uses a different daily word than normal mode,
+  // keeping the two difficulties isolated from each other.
   const n = ANSWERS.length;
-  return dayOfYear() % n;
+  const offset = hard ? HARD_OFFSET : 0;
+  return (dayOfYear() + offset) % n;
 }
 
 function answerForIndex(i) {
@@ -61,10 +84,32 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const saved = JSON.parse(raw);
-      // Validate the daily answer still matches today's; if the list changed, reset.
-      if (saved.answerIndex != null && answerForIndex(saved.answerIndex) === answerForIndex(pickDailyIndex())) {
-        return { ...defaultState(), ...saved, stats: { ...defaultState().stats, ...saved.stats } };
+      // Each difficulty keeps its own board. Validate each mode's daily word
+      // independently; if it no longer matches today's word (a new day), reset
+      // that mode only. The other difficulty's progress is preserved.
+      const games = {};
+      for (const key of ["normal", "hard"]) {
+        const g = saved.games?.[key];
+        const daily = pickDailyIndex(key === "hard");
+        if (g && g.answerIndex != null && answerForIndex(g.answerIndex) === answerForIndex(daily)) {
+          games[key] = { ...g };
+        } else {
+          games[key] = newGameProgress(key === "hard");
+        }
       }
+      const hard = !!saved.settings?.hard || saved.active === "hard";
+      const settings = saved.settings || {};
+      return {
+        games,
+        active: hard ? "hard" : "normal",
+        stats: { ...defaultState().stats, ...(saved.stats || {}) },
+        settings: {
+          hard,
+          highContrast: !!settings.highContrast,
+          dark: !!settings.dark,
+          sound: settings.sound !== false,
+        },
+      };
     }
   } catch (e) { /* ignore */ }
   return defaultState();
@@ -81,7 +126,7 @@ function saveState() {
 // ---------- Scoring (the subtle duplicate-letter rule) ----------
 // Returns an array of "correct" | "present" | "absent" for each position.
 function scoreGuess(guess) {
-  const answer = answerForIndex(state.answerIndex);
+  const answer = answerForIndex(game().answerIndex);
   const result = new Array(COLS).fill("absent");
   const ansArr = answer.split("");
   const guessArr = guess.split("");
@@ -155,7 +200,7 @@ function buildKeyboard() {
 }
 
 function currentRowEl() {
-  return board.querySelector(`.row[data-row="${state.row}"]`);
+  return board.querySelector(`.row[data-row="${game().row}"]`);
 }
 function tilesInRow(r) {
   const rowEl = board.querySelector(`.row[data-row="${r}"]`);
@@ -164,17 +209,17 @@ function tilesInRow(r) {
 
 // ---------- Input handling ----------
 function onKey(key) {
-  if (state.busy || state.won || state.lost) return;
+  if (game().busy || game().won || game().lost) return;
   if (key === "ENTER") submitGuess();
   else if (key === "BACK") deleteLetter();
   else if (/^[A-Z]$/.test(key)) addLetter(key);
 }
 
 function addLetter(letter) {
-  const tiles = tilesInRow(state.row);
-  const col = state.guess.length;
+  const tiles = tilesInRow(game().row);
+  const col = game().guess.length;
   if (col >= COLS) return;
-  state.guess += letter;
+  game().guess += letter;
   tiles[col].textContent = letter;
   tiles[col].classList.add("filled");
   flashTile(tiles[col]);
@@ -182,10 +227,10 @@ function addLetter(letter) {
 }
 
 function deleteLetter() {
-  const tiles = tilesInRow(state.row);
-  const col = state.guess.length - 1;
+  const tiles = tilesInRow(game().row);
+  const col = game().guess.length - 1;
   if (col < 0) return;
-  state.guess = state.guess.slice(0, -1);
+  game().guess = game().guess.slice(0, -1);
   tiles[col].textContent = "";
   tiles[col].classList.remove("filled");
 }
@@ -198,12 +243,12 @@ function flashTile(tile) {
 }
 
 function submitGuess() {
-  if (state.guess.length !== COLS) {
+  if (game().guess.length !== COLS) {
     shakeRow();
     showToast("Not enough letters");
     return;
   }
-  const guess = state.guess;
+  const guess = game().guess;
   if (!GUESS_SET.has(guess)) {
     shakeRow();
     showToast("Not in word list");
@@ -218,10 +263,10 @@ function submitGuess() {
     }
   }
 
-  state.busy = true;
+  game().busy = true;
   const result = scoreGuess(guess);
-  state.guesses.push(guess);
-  state.guess = "";
+  game().guesses.push(guess);
+  game().guess = "";
   revealRow(result, guess);
 }
 
@@ -231,7 +276,7 @@ function getHints() {
   const correctPositions = {};
   const present = {};
   const absent = {};
-  for (const g of state.guesses) {
+  for (const g of game().guesses) {
     const res = scoreGuess(g);
     for (let i = 0; i < COLS; i++) {
       const l = g[i];
@@ -283,7 +328,7 @@ function matchesHardMode(guess) {
 
 // ---------- Reveal animation ----------
 function revealRow(result, guess) {
-  const placedRow = state.row;
+  const placedRow = game().row;
   const tiles = tilesInRow(placedRow);
   const rowEl = currentRowEl();
 
@@ -302,21 +347,21 @@ function revealRow(result, guess) {
 
   const total = COLS * 300;
   setTimeout(() => {
-    const won = guess === answerForIndex(state.answerIndex);
-    state.row = state.guesses.length; // advance to next row after reveal
+    const won = guess === answerForIndex(game().answerIndex);
+    game().row = game().guesses.length; // advance to next row after reveal
     if (won) {
       onWin(placedRow);
-    } else if (state.row === ROWS) {
+    } else if (game().row === ROWS) {
       // Last attempt exhausted -> loss.
       lose();
     }
-    state.busy = false;
+    game().busy = false;
     saveState();
   }, total + 100);
 }
 
 function onWin(placedRow) {
-  state.won = true;
+  game().won = true;
   state.stats.played++;
   state.stats.wins++;
   state.stats.currentStreak++;
@@ -331,7 +376,7 @@ function onWin(placedRow) {
 }
 
 function lose() {
-  state.lost = true;
+  game().lost = true;
   state.stats.played++;
   state.stats.currentStreak = 0;
   saveState();
@@ -388,7 +433,7 @@ function renderDist() {
   const max = Math.max(1, ...state.stats.dist);
   for (let i = 0; i < ROWS; i++) {
     const col = document.createElement("div");
-    col.className = "bar-col" + (i === state.guesses.length - 1 && state.won ? " win" : "");
+    col.className = "bar-col" + (i === game().guesses.length - 1 && game().won ? " win" : "");
     const fill = document.createElement("div");
     fill.className = "bar-fill";
     const count = state.stats.dist[i];
@@ -405,11 +450,11 @@ function renderDist() {
 }
 
 function shareResults() {
-  const answer = answerForIndex(state.answerIndex);
+  const answer = answerForIndex(game().answerIndex);
   const lines = [];
-  lines.push(`Wordle ${state.guesses.length}/${ROWS}`);
-  if (state.lost) lines.push(answer);
-  state.guesses.forEach((g) => {
+  lines.push(`Wordle ${game().guesses.length}/${ROWS}`);
+  if (game().lost) lines.push(answer);
+  game().guesses.forEach((g) => {
     const res = scoreGuess(g);
     lines.push(res.map((r) => (r === "correct" ? "🟩" : r === "present" ? "🟨" : "⬛")).join(""));
   });
@@ -477,10 +522,21 @@ function playSound(kind) {
 }
 
 // ---------- New game ----------
+// Reset the active difficulty's board to a fresh game for today's daily word.
+// Stats and the other difficulty's progress are preserved.
 function newGame() {
-  const { settings } = state;
-  state = defaultState();
-  state.settings = settings; // preserve user settings (dark mode, hard mode, sound, etc.)
+  const key = state.settings.hard ? "hard" : "normal";
+  state.games[key] = newGameProgress(state.settings.hard);
+  state.stats = defaultState().stats;
+  saveState();
+  render();
+}
+
+// Reset both difficulties to fresh games for today (settings "New Game" button).
+function newGameAll() {
+  state.games.normal = newGameProgress(false);
+  state.games.hard = newGameProgress(true);
+  state.stats = defaultState().stats;
   saveState();
   render();
 }
@@ -490,19 +546,20 @@ function render() {
   buildBoard();
   buildKeyboard();
   // Replay existing guesses if returning mid-game.
-  for (let r = 0; r < state.guesses.length; r++) {
-    const g = state.guesses[r];
-    const res = scoreGuess(g);
+  const g = game();
+  for (let r = 0; r < g.guesses.length; r++) {
+    const guess = g.guesses[r];
+    const res = scoreGuess(guess);
     const rowEl = board.querySelector(`.row[data-row="${r}"]`);
     const tiles = rowEl.querySelectorAll(".tile");
     for (let c = 0; c < COLS; c++) {
-      tiles[c].textContent = g[c];
+      tiles[c].textContent = guess[c];
       tiles[c].classList.add("filled", res[c]);
     }
     // Apply key colors.
-    for (let c = 0; c < COLS; c++) updateKeyColor(g[c], res[c]);
+    for (let c = 0; c < COLS; c++) updateKeyColor(guess[c], res[c]);
   }
-  state.row = state.guesses.length;
+  g.row = g.guesses.length;
   applySettings();
 }
 
@@ -540,10 +597,18 @@ document.getElementById("play-again-btn").addEventListener("click", () => {
   statsModal.classList.add("hidden");
   newGame();
 });
+document.getElementById("new-game-btn").addEventListener("click", () => {
+  newGameAll();
+});
 
 // Settings controls
 document.getElementById("set-hard").addEventListener("change", (e) => {
-  state.settings.hard = e.target.checked; saveState();
+  // Switching difficulty just changes which board is shown; each difficulty keeps
+  // its own progress and daily word. Theme/other settings are untouched.
+  state.settings.hard = e.target.checked;
+  state.active = e.target.checked ? "hard" : "normal";
+  saveState();
+  render();
 });
 document.getElementById("set-hc").addEventListener("change", (e) => {
   state.settings.highContrast = e.target.checked; applySettings(); saveState();
