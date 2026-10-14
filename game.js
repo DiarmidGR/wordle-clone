@@ -235,10 +235,12 @@ function getHints() {
     const res = scoreGuess(g);
     for (let i = 0; i < COLS; i++) {
       const l = g[i];
-      present[l] = true;
       if (res[i] === "correct") {
         if (!correctPositions[l]) correctPositions[l] = new Set();
         correctPositions[l].add(i);
+        present[l] = true;
+      } else if (res[i] === "present") {
+        present[l] = true;
       } else if (res[i] === "absent") {
         if (!absent[l]) absent[l] = new Set();
         absent[l].add(i);
@@ -252,9 +254,17 @@ function getHints() {
 // their confirmed position, and no letter may be placed in a position known to be absent.
 function matchesHardMode(guess) {
   const { correctPositions, present, absent } = getHints();
+
+  // First try: no hints revealed yet, so any valid word is allowed.
+  if (Object.keys(present).length === 0) return true;
+
+  // Every revealed hint (green or yellow) must appear somewhere in this guess.
+  for (const letter of Object.keys(present)) {
+    if (!guess.includes(letter)) return false;
+  }
+
   for (let i = 0; i < COLS; i++) {
     const l = guess[i];
-    if (!present[l]) return false; // must use all revealed hints
     if (correctPositions[l] && !correctPositions[l].has(i)) return false; // green stays green
     if (absent[l] && absent[l].has(i)) return false; // not in a proven-absent spot
   }
