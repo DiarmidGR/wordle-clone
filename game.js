@@ -255,8 +255,15 @@ function getHints() {
 function matchesHardMode(guess) {
   const { correctPositions, present, absent } = getHints();
 
-  // First try: no hints revealed yet, so any valid word is allowed.
-  if (Object.keys(present).length === 0) return true;
+  // Build the set of positions locked to a confirmed green letter (position -> letter).
+  // A duplicate letter may still appear at other positions, so we lock positions,
+  // not letters.
+  const fixed = {};
+  for (const letter in correctPositions) {
+    for (const pos of correctPositions[letter]) {
+      fixed[pos] = letter;
+    }
+  }
 
   // Every revealed hint (green or yellow) must appear somewhere in this guess.
   for (const letter of Object.keys(present)) {
@@ -265,8 +272,11 @@ function matchesHardMode(guess) {
 
   for (let i = 0; i < COLS; i++) {
     const l = guess[i];
-    if (correctPositions[l] && !correctPositions[l].has(i)) return false; // green stays green
-    if (absent[l] && absent[l].has(i)) return false; // not in a proven-absent spot
+    // A confirmed-green position must keep that exact letter (duplicate copies are
+    // free to appear elsewhere).
+    if (fixed[i] !== undefined && fixed[i] !== l) return false;
+    // No letter may be placed in a proven-absent spot.
+    if (absent[l] && absent[l].has(i)) return false;
   }
   return true;
 }
