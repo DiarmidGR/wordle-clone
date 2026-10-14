@@ -1,0 +1,401 @@
+/* Wordle clone — faithful recreation of the NYT Wordle look and feel.
+   Colors are taken from the NYT Wordle CSS bundle (verified). */
+
+:root {
+  /* Light theme */
+  --board-bg: #ffffff;
+  --page-bg: #ffffff;
+  --text: #1a1a1b;
+  --border: #d7d7d7;
+  --border-active: #878a8c;
+  --key-bg: #ffffff;
+  --key-text: #1a1a1b;
+  --key-border: #d7d7d7;
+  --green: #6aaa64;
+  --yellow: #c9b458;
+  --gray: #787c7e;
+  --toast-bg: #1a1a1b;
+  --toast-text: #ffffff;
+  --modal-bg: #ffffff;
+  --overlay: rgba(22, 22, 22, 0.45);
+  --header-bar: #ffffff;
+}
+
+.dark {
+  /* Dark theme */
+  --board-bg: #121213;
+  --page-bg: #121213;
+  --text: #e3e3e1;
+  --border: #3a3a3c;
+  --border-active: #565758;
+  --key-bg: #3a3a3c;
+  --key-text: #e3e3e1;
+  --key-border: #3a3a3c;
+  --green: #538d4e;
+  --yellow: #b59f3b;
+  --gray: #565758;
+  --toast-bg: #e3e3e1;
+  --toast-text: #121213;
+  --modal-bg: #121213;
+  --overlay: rgba(0, 0, 0, 0.6);
+  --header-bar: #121213;
+}
+
+/* High contrast / colorblind mode overrides */
+.high-contrast {
+  --green: #f5793a;   /* orange */
+  --yellow: #85c0f9;  /* blue */
+}
+.high-contrast.dark {
+  --green: #f5793a;
+  --yellow: #85c0f9;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+}
+
+body {
+  background: var(--page-bg);
+  color: var(--text);
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100%;
+  overflow-x: hidden;
+  transition: background 0.2s ease, color 0.2s ease;
+  -webkit-font-smoothing: antialiased;
+  touch-action: manipulation;
+}
+
+/* ---------- Header ---------- */
+.header {
+  width: 100%;
+  max-width: 600px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 8px 16px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--header-bar);
+}
+.logo {
+  font-weight: 700;
+  font-size: 32px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-family: "Times New Roman", Georgia, serif;
+  justify-self: center;
+}
+.header-actions { display: flex; gap: 8px; justify-self: end; }
+.header-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text);
+  padding: 6px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  transition: background 0.15s;
+}
+.header-btn:hover { background: var(--border); }
+
+.divider { display: none; }
+
+/* ---------- Board ---------- */
+.game {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 500px;
+  padding: 16px 0 0;
+  margin-top: 8px;
+}
+
+.board {
+  display: grid;
+  grid-template-rows: repeat(6, 1fr);
+  gap: 5px;
+  padding: 12px;
+  flex-grow: 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+}
+
+.tile {
+  width: 58px;
+  height: 58px;
+  border: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text);
+  user-select: none;
+  transition: transform 0.1s ease;
+}
+
+/* Filled tile (letter already placed, awaiting submit) */
+.tile.filled {
+  border-color: var(--border-active);
+  animation: pop 0.1s ease;
+}
+
+/* Reveal animation */
+.tile.reveal { animation: flip 0.5s ease forwards; }
+
+.tile.shake { animation: shake 0.5s; }
+.row.shake { animation: shake 0.5s; }
+
+.tile.bounce { animation: bounce 0.6s; }
+
+/* Color states */
+.tile.correct { background: var(--green); color: #fff; border-color: var(--green); }
+.tile.present { background: var(--yellow); color: #fff; border-color: var(--yellow); }
+.tile.absent  { background: var(--gray);  color: #fff; border-color: var(--gray); }
+
+/* For high contrast, keep text readable on the orange/blue keys */
+.high-contrast .tile.correct,
+.high-contrast .tile.present { color: #000; }
+
+/* ---------- Keyboard ---------- */
+.keyboard {
+  width: 100%;
+  max-width: 500px;
+  padding: 8px 4px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.kb-row {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+.key {
+  flex: 1;
+  min-width: 30px;
+  height: 58px;
+  border: none;
+  border-radius: 4px;
+  background: var(--key-bg);
+  color: var(--key-text);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.key:hover { background: var(--border); }
+.key.wide { flex: 1.5; font-size: 12px; }
+.key:active { background: var(--border); }
+.key.correct { background: var(--green); color: #fff; }
+.key.present { background: var(--yellow); color: #fff; }
+.key.absent  { background: var(--gray);  color: #fff; }
+
+/* ---------- Toast ---------- */
+.toast {
+  position: fixed;
+  top: 20%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--toast-bg);
+  color: var(--toast-text);
+  padding: 12px 20px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 14px;
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.toast.show { opacity: 1; }
+
+/* ---------- Modals ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 50;
+  padding-top: 6vh;
+}
+.modal-overlay.hidden { display: none; }
+.modal {
+  background: var(--modal-bg);
+  color: var(--text);
+  width: min(420px, 92vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  border-radius: 8px;
+  padding: 24px;
+  position: relative;
+  box-shadow: 0 4px 30px rgba(0,0,0,0.4);
+  animation: fadeIn 0.18s ease;
+  text-align: center;
+}
+.modal h2 {
+  font-size: 24px;
+  margin-bottom: 12px;
+  border-bottom: 2px solid var(--green);
+  display: inline-block;
+  padding-bottom: 4px;
+}
+.modal p { margin-bottom: 12px; line-height: 1.4; }
+.modal ul { margin: 0 0 12px 20px; }
+.modal li { margin-bottom: 6px; }
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  background: none;
+  border: none;
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text);
+}
+.settings-note, .modal p:last-child { margin-bottom: 0; }
+
+.setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.setting-row span { font-weight: 700; font-size: 15px; }
+
+/* Toggle switch */
+.switch { position: relative; display: inline-block; width: 50px; height: 28px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute; inset: 0; cursor: pointer;
+  background: var(--border-active); border-radius: 28px; transition: 0.2s;
+}
+.slider::before {
+  content: ""; position: absolute; height: 22px; width: 22px; left: 3px; top: 3px;
+  background: #fff; border-radius: 50%; transition: 0.2s;
+}
+.switch input:checked + .slider { background: var(--green); }
+.switch input:checked + .slider::before { transform: translateX(22px); }
+
+/* Examples in help */
+.examples { margin: 16px 0; }
+.example-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.example-row div { font-size: 14px; }
+.tile.small { width: 30px; height: 30px; font-size: 16px; }
+
+/* ---------- Stats ---------- */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  text-align: center;
+  margin-bottom: 20px;
+}
+.stats-grid span { display: block; font-size: 32px; font-weight: 700; }
+.stats-grid label { font-size: 12px; }
+
+.bar-chart { display: flex; align-items: flex-end; gap: 6px; height: 110px; margin-bottom: 20px; }
+.bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+.bar-fill {
+  width: 100%;
+  background: var(--border-active);
+  color: #fff;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  padding-top: 2px;
+  min-height: 20px;
+  border-radius: 2px;
+}
+.bar-col.win .bar-fill { background: var(--green); }
+.bar-num { font-size: 12px; margin-top: 6px; color: var(--text); }
+
+.modal-actions { display: flex; gap: 12px; justify-content: center; }
+.share-btn, .play-again-btn {
+  flex: 1;
+  padding: 14px;
+  font-weight: 700;
+  font-size: 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.share-btn { background: var(--green); color: #fff; }
+.share-btn:hover { opacity: 0.9; }
+.play-again-btn { background: var(--key-bg); color: var(--text); border: 1px solid var(--border-active); }
+.play-again-btn:hover { opacity: 0.85; }
+
+/* Result grid shared to social */
+.share-preview {
+  font-family: var(--mono, monospace);
+  font-size: 22px;
+  line-height: 1.25;
+  letter-spacing: 2px;
+  text-align: center;
+  margin: 4px 0 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------- Animations ---------- */
+@keyframes pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+@keyframes flip {
+  0% { transform: rotateX(0); }
+  50% { transform: rotateX(90deg); }
+  100% { transform: rotateX(0); }
+}
+@keyframes shake {
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(2px); }
+  30%, 50%, 70% { transform: translateX(-4px); }
+  40%, 60% { transform: translateX(4px); }
+}
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-24px); }
+  60% { transform: translateY(-10px); }
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
+
+/* ---------- Responsive ---------- */
+@media (max-height: 700px) {
+  .tile { width: 50px; height: 50px; font-size: 28px; }
+  .key { height: 50px; }
+  .board { padding: 8px; }
+}
+@media (max-width: 420px) {
+  .tile { width: 52px; height: 52px; font-size: 28px; }
+  .logo { font-size: 28px; }
+}
